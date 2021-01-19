@@ -1,0 +1,8 @@
+node_modules/
+.venv/
+.vscode/
+__pychache__/
+.cache
+*.pyc
+Storage/
+debug.py
