@@ -372,14 +372,17 @@ class Data:
 
 	def add_playlist(self, Spot, playlist_ids):
 
+		if isinstance(playlist_ids, str):
+			playlist_ids = [playlist_ids]
+
 		# Store the initial number of playlists and tracks in the feature set
 		n_playlists_init = self.playlist_count()
 		n_tracks_init = self.track_count()
 
 		new_data = defaultdict(list)
+		class_label = self.new_class_label()
 
 		for p in playlist_ids:
-			class_label = self.new_class_label()
 			playlist_tracks = self.get_tracklist(Spot, p)
 
 			playlist_name = str(Spot.playlist(p, fields='name')['name'])
@@ -387,8 +390,10 @@ class Data:
 
 			for t in playlist_tracks:
 				self.process_track_data(self.get_track_data(Spot, t), class_label, new_data)
+			
+			class_label += 1
 
-			self.F = self.F.append(pd.DataFrame(data=new_data), ignore_index=True)
+		self.F = self.F.append(pd.DataFrame(data=new_data), ignore_index=True)
 
 		# Return the amount of new playlists and tracks added to the feature set
 		return self.playlist_count() - n_playlists_init, self.track_count() - n_tracks_init
