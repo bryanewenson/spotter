@@ -8,6 +8,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split, cross_validate
 from sklearn.neural_network import MLPClassifier
 from collections import defaultdict
+import os
 
 class Data:
 	__feature_dtypes = {'bar_conf_avg' : float, 'bar_conf_std' : float, 'bar_dur_avg' : float, 'bar_dur_std' : float, 'beat_conf_avg' : float, 'beat_conf_std' : float, 'beat_dur_avg' : float, 'beat_dur_std' : float, 'tatum_conf_avg' : float, 'tatum_conf_std' : float, 'tatum_dur_avg' : float, 'tatum_dur_std' : float, 'bpm' : int, 'sect_conf_avg' : float, 'sect_conf_std' : float, 'sect_dur_avg' : float, 'sect_dur_std' : float, 'num_sections' : int, 'key_conf_avg' : float, 'key_conf_std' : float, 'dominant_key' : 'category', 'key_changes' : int, 'key_relfreq_0' : float, 'key_relfreq_1' : float, 'key_relfreq_2' : float, 'key_relfreq_3' : float, 'key_relfreq_4' : float, 'key_relfreq_5' : float, 'key_relfreq_6' : float, 'key_relfreq_7' : float, 'key_relfreq_8' : float, 'key_relfreq_9' : float, 'key_relfreq_10' : float, 'key_relfreq_11' : float, 'loudness_diff_avg' : float, 'loudness_diff_std' : float, 'mode_conf_avg' : float, 'mode_conf_std' : float, 'mode_changes' : int, 'mode_avg' : float, 'tempo_conf_avg' : float, 'tempo_conf_std' : float, 'tempo_avg' : float, 'tempo_std' : float, 'tempo_diff_avg' : float, 'tempo_diff_std' : float, 'timesig_conf_avg' : float, 'timesig_conf_std' : float, 'timesig_changes' : int, 'dominant_timesig' : 'category', 'timesig_relfreq_3' : float, 'timesig_relfreq_4' : float, 'timesig_relfreq_5' : float, 'timesig_relfreq_6' : float, 'timesig_relfreq_7' : float, 'segm_conf_avg' : float, 'segm_conf_std' : float, 'segm_dur_avg' : float, 'segm_dur_std' : float, 'num_segments' : int, 'pitch_sum_avg' : float, 'pitch_sum_std' : float, 'pitch_reldom_avg_0' : float, 'pitch_reldom_std_0' : float, 'pitch_reldom_avg_1' : float, 'pitch_reldom_std_1' : float, 'pitch_reldom_avg_2' : float, 'pitch_reldom_std_2' : float, 'pitch_reldom_avg_3' : float, 'pitch_reldom_std_3' : float, 'pitch_reldom_avg_4' : float, 'pitch_reldom_std_4' : float, 'pitch_reldom_avg_5' : float, 'pitch_reldom_std_5' : float, 'pitch_reldom_avg_6' : float, 'pitch_reldom_std_6' : float, 'pitch_reldom_avg_7' : float, 'pitch_reldom_std_7' : float, 'pitch_reldom_avg_8' : float, 'pitch_reldom_std_8' : float, 'pitch_reldom_avg_9' : float, 'pitch_reldom_std_9' : float, 'pitch_reldom_avg_10' : float, 'pitch_reldom_std_10' : float, 'pitch_reldom_avg_11' : float, 'pitch_reldom_std_11' : float, 'dominant_pitch' : 'category', 'timbre_coeff_avg_0' : float, 'timbre_coeff_std_0' : float, 'timbre_coeff_avg_1' : float, 'timbre_coeff_std_1' : float, 'timbre_coeff_avg_2' : float, 'timbre_coeff_std_2' : float, 'timbre_coeff_avg_3' : float, 'timbre_coeff_std_3' : float, 'timbre_coeff_avg_4' : float, 'timbre_coeff_std_4' : float, 'timbre_coeff_avg_5' : float, 'timbre_coeff_std_5' : float, 'timbre_coeff_avg_6' : float, 'timbre_coeff_std_6' : float, 'timbre_coeff_avg_7' : float, 'timbre_coeff_std_7' : float, 'timbre_coeff_avg_8' : float, 'timbre_coeff_std_8' : float, 'timbre_coeff_avg_9' : float, 'timbre_coeff_std_9' : float, 'timbre_coeff_avg_10' : float, 'timbre_coeff_std_10' : float, 'timbre_coeff_avg_11' : float, 'timbre_coeff_std_11' : float, 'timbre_normdiff_avg' : float, 'timbre_normdiff_std' : float, 'timbre_norm_avg' : float, 'timbre_norm_std' : float, 'key' : 'category', 'key_conf' : float, 'tempo' : float, 'tempo_conf' : float, 'time_signature' : 'category', 'time_signature_conf' : float, 'mode' : 'category', 'mode_conf' : float, 'fadeout_len' : float, 'fadein_len' : float, 'acousticness'  : float, 'danceability' : float,  'duration' : float,  'energy'  : float, 'instrumentalness' : float,  'liveness' : float, 'loudness' : float, 'speechiness' : float, 'valence' : float}
@@ -18,11 +19,18 @@ class Data:
 
 	__features_fname = 'features.csv'
 
+	#TODO add functionality to append to current data using load function.
+	#TODO find more places where exceptions need to be handled.
+	#TODO add a function to update a playlist
+
 	def __init__(self, data_dir = None):
 		
 		self.dir = data_dir
+
 		self.F = pd.DataFrame(columns=self.get_column_labels())
 		self.F = self.F.astype(self.__feature_dtypes)
+
+		self.P = {}
 
 		if data_dir is not None:
 			load_response = self.load()
@@ -42,14 +50,14 @@ class Data:
 			return ['label'] + list(self.__feature_dtypes.keys())		
 
 	def new_class_label(self):
-		#Reserve class label 0 for unclassified data
-		
 		if self.empty():
 			return 1
 		else:
 			return max(self.F['label']) + 1
 
 	def process_track_data(self, raw_data, class_label = 0, track_data = defaultdict(list)):
+
+		#TODO Could derive some more features based on available data
 
 		add_value = lambda key, val : track_data[key].append(val)
 
@@ -266,7 +274,7 @@ class Data:
 	def get_track_data(self, Spot, tid):
 		print('Reading Track ' + str(tid) + '...')
 
-		raw_data = {'track_id':tid}
+		raw_data = {'track_uri_ext':tid}
 
 		query_resp = None
 		failed_attempts = 0
@@ -290,8 +298,6 @@ class Data:
 		raw_data['loudness'] = query_resp['loudness']
 		raw_data['speechiness'] = query_resp['speechiness']
 		raw_data['valence'] = query_resp['valence']
-
-		#TODO continue here
 
 		# Query audio analysis based on the track id passed to this function
 		query_resp = None
@@ -358,10 +364,16 @@ class Data:
 	def get_tracklist(self, Spot, pid):
 		
 		tracklist = []
-
 		offset = 0
+		
 		while True:
-			resp = Spot.playlist_items(pid, offset=offset, fields='items.track.id')
+			try:
+				resp = Spot.playlist_items(pid, offset=offset, fields='items.track.id')
+			except spotipy.exceptions.SpotifyException:
+				print('Error reading tracklist: ' + pid + '...')
+				return None
+
+			# Exit the loop if there are no more tracks to read
 			if len(resp['items']) == 0:
 				break
 
@@ -375,28 +387,64 @@ class Data:
 		if isinstance(playlist_ids, str):
 			playlist_ids = [playlist_ids]
 
-		# Store the initial number of playlists and tracks in the feature set
-		n_playlists_init = self.playlist_count()
+		# Store the initial number of tracks in the feature set
 		n_tracks_init = self.track_count()
+		n_playlists_added = 0
 
 		new_data = defaultdict(list)
-		class_label = self.new_class_label()
+		new_label = self.new_class_label()
+		playlist_names = []
 
 		for p in playlist_ids:
+			playlist_names.append(str(Spot.playlist(p, fields='name')['name']))
+			print('Attempting to read playlist: ' + playlist_names[-1] + '... ')
+
 			playlist_tracks = self.get_tracklist(Spot, p)
 
-			playlist_name = str(Spot.playlist(p, fields='name')['name'])
-			print('Adding playlist: ' + playlist_name + '...')
+			try:
+				for t in playlist_tracks:
+					self.process_track_data(self.get_track_data(Spot, t), new_label + n_playlists_added, new_data)
+				
+				n_playlists_added += 1
+				print('Successfully read playlist: ' + playlist_names[-1] + '!')
+			except TypeError:
+				continue
 
-			for t in playlist_tracks:
-				self.process_track_data(self.get_track_data(Spot, t), class_label, new_data)
-			
-			class_label += 1
+		if n_playlists_added == 0:
+			return 0,0
 
 		self.F = self.F.append(pd.DataFrame(data=new_data), ignore_index=True)
 
+		name_iter = iter(playlist_names)
+
+		for c in range(new_label, new_label + n_playlists_added):
+			self.update_metadata(c, next(name_iter))
+
 		# Return the amount of new playlists and tracks added to the feature set
-		return self.playlist_count() - n_playlists_init, self.track_count() - n_tracks_init
+		return n_playlists_added, self.track_count() - n_tracks_init
+
+	def update_metadata(self, class_label, playlist_name = None):
+
+		try:
+			metadata = self.P[class_label]
+		except KeyError:
+			metadata = {}
+
+		if playlist_name is not None:
+			metadata['playlist_name'] = playlist_name
+
+		playlist_data = self.F[self.F['label'] == class_label].drop('label', axis=1)
+
+		for c in playlist_data.columns:
+			col_data = playlist_data[c]
+
+			if pd.api.types.is_numeric_dtype(col_data):	
+				metadata[c + '_mean'] = col_data.mean()
+				metadata[c + '_std'] = col_data.std()
+			elif not pd.api.types.is_object_dtype(col_data):
+				metadata[c + '_mode'] = col_data.mode().tolist()
+
+		self.P[class_label] = metadata
 
 	def empty(self):
 		return self.F.empty
