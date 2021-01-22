@@ -5,8 +5,9 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectPercentile, f_classif
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, cross_validate
+from sklearn.model_selection import train_test_split, cross_validate, StratifiedKFold
 from sklearn.neural_network import MLPClassifier
+
 from collections import defaultdict
 import os
 
@@ -25,6 +26,7 @@ class Data:
 
 		self.F = pd.DataFrame(columns=self.get_column_labels())
 		self.F = self.F.astype(self.__feature_dtypes)
+		self.F['label'] = self.F['label'].astype(int)
 
 		self.P = {}
 
@@ -180,15 +182,49 @@ class Data:
 		self.dir = new_dir
 		print('New storage directory: ' + new_dir)
 
-	def separate_data(self, shuffle=False):
-		if shuffle:
-			X = self.F.sample(frac=1.0)
-		else:
-			X = pd.Dataframe(self.F,copy=True)
-		
+	def get_separated_data(self):
+		X = pd.DataFrame(self.F,copy=True)
 		y = X.pop('label')
 
 		return X,y
+
+	def error_consistency(self, estimator = None, n_trials=50):
+		K = 5
+		X,y = self.get_separated_data()
+
+		if pipe is None:
+			pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
+							 ('scaler', StandardScaler()),
+							 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50)))])
+		
+		EC_calc = lambda ES_i, ES_j : len(ES_i.intersection(ES_j)) / len(ES_i.union(ES_j))
+		skf = StratifiedKFold(n_splits = K, shuffle = True)
+
+		error_sets = {}
+		EC = []
+
+		for t in range(n_trials):
+			for train_idx, test_idx in skf.split(X, list(y)):
+				estimator = pipe.fit(X.iloc[train_idx], list(y.iloc[train_idx]))
+				pred = estimator.predict(X.iloc[test_idx])
+
+				error_sets[t] = {idx for idx in range(len(pred)) if pred[idx] != y.iloc[test_idx[idx]]}
+
+			EC.extend([EC_calc(error_sets[idx], error_sets[t]) for idx in range(t)])
+
+		return error_sets, EC
+	
+	# Multi-layer Perceptrons support multilabel, which could produce interesting results. Will need to test it.
+	# TODO: Adjust classifier parameters to optimize results
+	def train_MLP_estimator(self, iterations=300, seed=None):
+		pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
+						 ('scaler', StandardScaler()),
+						 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50)))])
+
+		X,y = self.get_separated_data()
+		cv_results = cross_validate(pipe,X,y, return_estimator=True)
+
+		return cv_results
 
 def initialize_Spotify(cid, cid_secret, redirect_uri, scopes='user-top-read playlist-read-private user-library-read'):
 	Spot = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=cid,
@@ -198,7 +234,7 @@ def initialize_Spotify(cid, cid_secret, redirect_uri, scopes='user-top-read play
 
 	return Spot
 
-def process_track_data(raw_data, class_label = 0, track_data = defaultdict(list)):
+def process_track_data(raw_data, class_label = None, track_data = defaultdict(list)):
 
 	#TODO Could derive some more features based on available data
 
@@ -209,8 +245,9 @@ def process_track_data(raw_data, class_label = 0, track_data = defaultdict(list)
 	mean_std_count = lambda m : (np.mean(m), np.std(m), len(m))
 	mean_std_diff = lambda m : (mean_std([abs(m[i] - m[i + 1]) for i in range(len(m) - 1)]))
 
-	# Store the class label for this track. 0 is the default, which refers to unclassified data.
-	add_value('label', class_label)
+	# Store the class label for this track.
+	if class_label is not None:
+		add_value('label', class_label)
 
 	# Store some general features that are calculated by Spotify
 
@@ -508,14 +545,7 @@ def get_track_data(Spot, tid):
 
 	return raw_data
 
-# Multi-layer Perceptrons support multilabel, which could produce interesting results. Will need to test it.
-# TODO: Adjust classifier parameters to optimize results
-def classify(data, iterations=300, seed=None):
-	pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
-					 ('scaler', StandardScaler()),
-					 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50)))])
-
-	X,y = data.separate_data(shuffle=True)
-	cv_results = cross_validate(pipe,X,y, return_estimator=True)
-
-	return cv_results
+def classify_track(Spot, tid, estimator):
+	track_features = process_track_data(get_track_data(Spot, tid))
+	
+	return estimator.predict(tid)
