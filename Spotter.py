@@ -5,9 +5,9 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectPercentile, f_classif
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, cross_validate, StratifiedKFold
+from sklearn.model_selection import train_test_split, cross_validate, StratifiedKFold, ParameterGrid, GridSearchCV
 from sklearn.neural_network import MLPClassifier
-
+from sklearn.metrics import accuracy_score
 from collections import defaultdict
 import os
 
@@ -16,9 +16,10 @@ class Data:
 
 	__features_fname = 'features.csv'
 
-	#TODO add functionality to append to current data using load function.
-	#TODO find more places where exceptions need to be handled.
-	#TODO add a function to update a playlist
+	#TODO Add functionality to append to current data using load function.
+	#TODO Find more places where exceptions need to be handled.
+	#TODO Add a function to update a playlist
+	#TODO Test optimizer
 
 	def __init__(self, data_dir = None):
 		
@@ -188,15 +189,10 @@ class Data:
 
 		return X,y
 
-	def error_consistency(self, estimator = None, n_trials=50):
+	def error_consistency(self, estimator, n_trials=50):
 		K = 5
 		X,y = self.get_separated_data()
 
-		if pipe is None:
-			pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
-							 ('scaler', StandardScaler()),
-							 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50)))])
-		
 		EC_calc = lambda ES_i, ES_j : len(ES_i.intersection(ES_j)) / len(ES_i.union(ES_j))
 		skf = StratifiedKFold(n_splits = K, shuffle = True)
 
@@ -213,13 +209,22 @@ class Data:
 			EC.extend([EC_calc(error_sets[idx], error_sets[t]) for idx in range(t)])
 
 		return error_sets, EC
-	
+
+	def optimize_estimator(self, base_estimator, parameters, crossval = 5, eval_metric = None):
+		X,y = self.get_separated_data()
+
+		clf = GridSearchCV(base_estimator, parameters, scoring=eval_metric, cv=crossval)
+		clf.fit(X,y)
+		
+		base_estimator.set_params(**clf.best_params_)
+
+		return clf.best_score_, clf.best_params_
+
 	# Multi-layer Perceptrons support multilabel, which could produce interesting results. Will need to test it.
-	# TODO: Adjust classifier parameters to optimize results
 	def train_MLP_estimator(self, iterations=300, seed=None):
 		pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
 						 ('scaler', StandardScaler()),
-						 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50)))])
+						 ('mlp', MLPClassifier())])
 
 		X,y = self.get_separated_data()
 		cv_results = cross_validate(pipe,X,y, return_estimator=True)
@@ -545,7 +550,13 @@ def get_track_data(Spot, tid):
 
 	return raw_data
 
+def get_base_estimator():
+	pipe = Pipeline([('fs_percent', SelectPercentile(f_classif, percentile=40)),
+					 ('scaler', StandardScaler()),
+					 ('mlp', MLPClassifier(hidden_layer_sizes=(150,100,50), max_iter=500))])
+	return pipe
+
 def classify_track(Spot, tid, estimator):
 	track_features = process_track_data(get_track_data(Spot, tid))
 	
-	return estimator.predict(tid)
+	return estimator.predict(track_features)
