@@ -7,7 +7,9 @@ Classification accuracy is low until some multilabel optimization methods
 are implemented.
 
 TODO:
+	- Process_track. Should it return defaultdict? Probably not. 
 	- Provide examples on class usage.
+	- Consider splitting classes into separate files.
 	- Add __repr__ and __str__ for classes.
 	- Elaborate in some of the method docs.
 	- Add multilabel feature selection steps to estimator pipeline.
@@ -80,19 +82,22 @@ class SpotifyDataset:
 				within config.py.
 		"""
 
-		if not isinstance(spot_helper, SpotifyHelper):
+		if isinstance(spot_helper, SpotifyHelper):
+			self._spot_helper = spot_helper
+		else:
 			self._spot_helper = SpotifyHelper()
 
-		self.storage_dir = storage_dir
+		if storage_dir is not None:
+			self.storage_dir = storage_dir
 		self._next_class_label = None
 
-		self.feature_set = pd.DataFrame(columns=self.get_column_labels())
+		self.feature_set = pd.DataFrame(columns=self.column_labels)
 		self.feature_set = self.feature_set.astype(self.__feature_dtypes)
 
 		# PLAYLIST METADATA (KEY= Playlist URI: str)
 		# name: str,
 		# class_label: int,
-		# (avg AND std) OR mode for each feature in feature_set,
+		# (avg AND std) OR mode for each feature in feature_set
 		self.playlist_metadata = {}
 
 		# TRACK METADATA (KEY= Track URI: str)
@@ -117,6 +122,14 @@ class SpotifyDataset:
 	def storage_dir(self):
 		"""The directory in which to store this dataset."""
 		return self._storage_dir
+
+	@property
+	def column_labels(self):
+		"""The column labels of the underlying feature set."""
+		try:
+			return self.feature_set.columns.tolist()
+		except AttributeError:
+			return list(self.__feature_dtypes.keys())
 
 	@storage_dir.setter
 	def storage_dir(self, s_dir: pathlib.Path):
@@ -209,7 +222,7 @@ class SpotifyDataset:
 
 		try:
 			path = s_dir / self.__file_names['feature_set']
-			self.feature_set.to_csv(path, header=self.get_column_labels())
+			self.feature_set.to_csv(path, header=self.column_labels)
 
 			path = s_dir / self.__file_names['playlist_metadata']
 			with open(path, 'wb+') as f:
@@ -228,17 +241,6 @@ class SpotifyDataset:
 			return False
 
 		return True
-
-	def get_column_labels(self) -> list:
-		"""
-		Returns the list of column titles from the feature set.
-
-		"""
-
-		try:
-			return self.feature_set.columns.tolist()
-		except AttributeError:
-			return list(self.__feature_dtypes.keys())
 
 	def _new_class_label(self) -> int:
 		"""
@@ -482,6 +484,36 @@ class SpotifyDataset:
 
 		return self.feature_set, self.formatted_labels()
 
+	def align(
+			self, 
+			track_data: dict
+		) -> np.array[Any]:
+		"""
+		Align given track data to the format present in this dataset.
+
+		Args:
+			track_data: A dict containing processed track data. The set of
+				keys in this dict should be exactly the same as this dataset's
+				column_labels. Any keys that are not present in column_labels
+				are ignored.
+
+		Returns:
+			The same track data, but in a list ordered the same as the columns
+			in this dataset's column_labels.
+
+			If a key is missing, returns None.
+
+		"""
+
+		aligned = []
+		try:
+			for label in self.column_labels:
+				aligned.append(track_data[label][-1])
+		except KeyError:
+			print('Missing key in track data.')
+			return None
+
+		return np.array(aligned)
 
 class SpotifyHelper:
 	"""
@@ -748,7 +780,6 @@ class SpotifyHelper:
 		if raw_data is None:
 			return None
 
-		# add_value = lambda key, val: track_data[key].append(val)
 		def add_value(key, val):
 			track_data[key].append(val)
 
@@ -1012,7 +1043,6 @@ class Classifier:
 		self._estimator = estimator
 		if self._estimator is None:
 			self._estimator = Pipeline([
-					('scaler', StandardScaler()),
 					('mlp', MLPClassifier(hidden_layer_sizes=(300, 175, 50), max_iter=2000))
 				])
 
@@ -1128,7 +1158,10 @@ class Classifier:
 			track belonging to each playlist.
 
 		"""
-		self._estimator.fit(self._spot_data.get_separated_data())
+		X,y = self._spot_data.get_separated_data()
+		self._estimator.fit(X,y=y)
 
 		track_features = self._spot_helper.process_track(track_id)
-		return self._estimator.predict_proba(track_features)
+		aligned_features = self._spot_data.align(track_features).reshape(1,-1)
+
+		return self._estimator.predict_proba(aligned_features)
